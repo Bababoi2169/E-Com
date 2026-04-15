@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ShopNest</title>
+
+  <!-- Your CSS goes here -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+  <!-- ───────────── NAVBAR ───────────── -->
+  <nav>
+    <a href="/">ShopNest</a>
+
+    <ul>
+      <li><a href="/shop">Shop</a></li>
+      <li><a href="/cart">Cart</a></li>
+
+      {% if current_user.is_authenticated %}
+        <li><a href="/dashboard">{{ current_user.username }}</a></li>
+        {% if current_user.is_admin %}
+          <li><a href="/admin">Admin Panel</a></li>
+        {% endif %}
+        <li><a href="/logout">Logout</a></li>
+      {% else %}
+        <li><a href="/login">Login</a></li>
+        <li><a href="/register">Sign Up</a></li>
+      {% endif %}
+    </ul>
+  </nav>
+
+  <!-- ───────────── FLASH MESSAGES ───────────── -->
+  <!-- Shows success/error messages from Flask e.g. "Logged in!", "Wrong password" -->
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+    <div class="flash {{ category }}">{{ message }}</div>
+  {% endfor %}
+
+  <!-- ───────────── HERO SECTION ───────────── -->
+  <section class="hero">
+    <h1>Welcome to ShopNest</h1>
+    <p>Find everything you need, delivered to your door.</p>
+
+    <div class="hero-buttons">
+      <a href="/shop">Browse Products</a>
+
+      {% if not current_user.is_authenticated %}
+        <a href="/register">Create Account</a>
+      {% endif %}
+    </div>
+  </section>
+
+  <!-- ───────────── FEATURED CATEGORIES ───────────── -->
+  <!-- Add/remove categories as you like -->
+  <section class="categories">
+    <h2>Shop by Category</h2>
+
+    <div class="category-grid">
+      <a href="/shop?category=Electronics">Electronics</a>
+      <a href="/shop?category=Footwear">Footwear</a>
+      <a href="/shop?category=Accessories">Accessories</a>
+    </div>
+  </section>
+
+  <!-- ───────────── FEATURED PRODUCTS ───────────── -->
+  <!-- 'featured_products' is passed in from app.py (see note below) -->
+  <section class="featured">
+    <h2>Featured Products</h2>
+
+    <div class="product-grid">
+      {% for product in featured_products %}
+      <div class="product-card">
+        <img src="{{ product.image }}" alt="{{ product.name }}" />
+        <h3>{{ product.name }}</h3>
+        <p>₹{{ product.price }}</p>
+
+        {% if current_user.is_authenticated %}
+          <form method="POST" action="/cart/add">
+            <input type="hidden" name="product_id" value="{{ product.id }}" />
+            <button type="submit">Add to Cart</button>
+          </form>
+        {% else %}
+          <a href="/login">Login to add to cart</a>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <a href="/shop">View All Products</a>
+  </section>
+
+  <!-- ───────────── WHY US / FEATURES STRIP ───────────── -->
+  <section class="features">
+    <div class="feature">
+      <h3>Free Shipping</h3>
+      <p>On all orders above ₹999</p>
+    </div>
+    <div class="feature">
+      <h3>Easy Returns</h3>
+      <p>30-day hassle-free returns</p>
+    </div>
+    <div class="feature">
+      <h3>Secure Payments</h3>
+      <p>Your data is always safe</p>
+    </div>
+    <div class="feature">
+      <h3>24/7 Support</h3>
+      <p>We're here when you need us</p>
+    </div>
+  </section>
+
+  <!-- ───────────── FOOTER ───────────── -->
+  <footer>
+    <p>&copy; 2025 ShopNest. All rights reserved.</p>
+    <ul>
+      <li><a href="/shop">Shop</a></li>
+      <li><a href="/login">Login</a></li>
+      <li><a href="/register">Register</a></li>
+    </ul>
+  </footer>
+
+  <!-- Your JS goes here -->
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

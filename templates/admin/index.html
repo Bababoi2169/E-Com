@@ -1,0 +1,40 @@
+{% extends 'admin/master.html' %}
+
+{% block body %}
+<div style="padding: 2rem;">
+  <h2 style="font-size:1.8rem; margin-bottom:0.4rem;">👋 Welcome to ShopNest Admin</h2>
+  <p style="color:#888; margin-bottom:2rem;">Manage your store from here.</p>
+
+  <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(160px,1fr)); gap:1rem; margin-bottom:2.5rem;">
+    <div style="background:#1e293b; border:1px solid #334155; border-radius:12px; padding:1.5rem; text-align:center;">
+      <div style="font-size:2rem; font-weight:800; color:#e8c547;">{{ stats.products }}</div>
+      <div style="color:#94a3b8; font-size:0.85rem; margin-top:0.3rem;">Products</div>
+    </div>
+    <div style="background:#1e293b; border:1px solid #334155; border-radius:12px; padding:1.5rem; text-align:center;">
+      <div style="font-size:2rem; font-weight:800; color:#52c47a;">{{ stats.users }}</div>
+      <div style="color:#94a3b8; font-size:0.85rem; margin-top:0.3rem;">Users</div>
+    </div>
+    <div style="background:#1e293b; border:1px solid #334155; border-radius:12px; padding:1.5rem; text-align:center;">
+      <div style="font-size:2rem; font-weight:800; color:#5290e0;">{{ stats.orders }}</div>
+      <div style="color:#94a3b8; font-size:0.85rem; margin-top:0.3rem;">Orders</div>
+    </div>
+    <div style="background:#1e293b; border:1px solid #334155; border-radius:12px; padding:1.5rem; text-align:center;">
+      <div style="font-size:1.4rem; font-weight:800; color:#f472b6;">₹{{ "{:,}".format(stats.revenue|int) }}</div>
+      <div style="color:#94a3b8; font-size:0.85rem; margin-top:0.3rem;">Revenue</div>
+    </div>
+    <div style="background:#1e293b; border:1px solid #334155; border-radius:12px; padding:1.5rem; text-align:center;">
+      <div style="font-size:2rem; font-weight:800; color:#e05252;">{{ stats.cart_items }}</div>
+      <div style="color:#94a3b8; font-size:0.85rem; margin-top:0.3rem;">Cart Items</div>
+    </div>
+  </div>
+
+  <h4 style="margin-bottom:1rem; color:#cbd5e1;">Quick Actions</h4>
+  <div style="display:flex; gap:0.8rem; flex-wrap:wrap;">
+    <a href="/admin/admin_products/new/" class="btn btn-primary">+ Add Product</a>
+    <a href="/admin/admin_products/" class="btn btn-default">All Products</a>
+    <a href="/admin/admin_orders/" class="btn btn-default">All Orders</a>
+    <a href="/admin/admin_users/" class="btn btn-default">All Users</a>
+    <a href="/shop" target="_blank" class="btn btn-default">Open Shop ↗</a>
+  </div>
+</div>
+{% endblock %}
