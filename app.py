@@ -1,5 +1,6 @@
 import razorpay
 import json
+import os
 from flask import Flask, render_template, redirect, url_for, request, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
@@ -7,21 +8,27 @@ from flask_bcrypt import Bcrypt
 from flask_admin import Admin, AdminIndexView, expose
 from flask_admin.contrib.sqla import ModelView
 from datetime import datetime
+from urllib.parse import urlparse
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed; use real environment variables
 
 app = Flask(__name__)
-app.config['SECRET_KEY']                  = 'change-this-to-a-random-secret-key'
-app.config['SQLALCHEMY_DATABASE_URI']     = 'sqlite:///ecommerce.db'
+app.config['SECRET_KEY']                     = os.environ.get('SECRET_KEY', 'dev-fallback-change-in-production')
+app.config['SQLALCHEMY_DATABASE_URI']        = 'sqlite:///ecommerce.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# ── Razorpay keys — replace with your own from dashboard.razorpay.com ──
-RAZORPAY_KEY_ID     = 'rzp_test_SdBhgDmS58JIz6'
-RAZORPAY_KEY_SECRET = 'SgGlSHhEkdPyKAZmHUN0OlZu'
-
+# ── Razorpay keys — set these in a .env file, never commit them ──
+RAZORPAY_KEY_ID     = os.environ.get('RAZORPAY_KEY_ID')
+RAZORPAY_KEY_SECRET = os.environ.get('RAZORPAY_KEY_SECRET')
 
 razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
-db           = SQLAlchemy(app)
-bcrypt       = Bcrypt(app)
+db            = SQLAlchemy(app)
+bcrypt        = Bcrypt(app)
 login_manager = LoginManager(app)
 login_manager.login_view    = 'login'
 login_manager.login_message = 'Please log in to access this page.'
@@ -51,12 +58,14 @@ class User(db.Model):
 
 class Product(db.Model):
     __tablename__ = 'products'
-    id       = db.Column(db.Integer, primary_key=True)
-    name     = db.Column(db.String(200), nullable=False)
-    price    = db.Column(db.Float, nullable=False)
-    image    = db.Column(db.String(300))
-    category = db.Column(db.String(100))
-    in_stock = db.Column(db.Boolean, default=True)
+    id          = db.Column(db.Integer, primary_key=True)
+    name        = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, default='')
+    price       = db.Column(db.Float, nullable=False)
+    image       = db.Column(db.String(300))
+    category    = db.Column(db.String(100))
+    stock       = db.Column(db.Integer, default=10)   # replaces bare boolean
+    in_stock    = db.Column(db.Boolean, default=True)
 
     def __repr__(self): return f'<Product {self.name}>'
 
@@ -90,10 +99,10 @@ class Order(db.Model):
     user_id             = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     razorpay_order_id   = db.Column(db.String(100), unique=True)
     razorpay_payment_id = db.Column(db.String(100))
-    amount              = db.Column(db.Float)           # in INR
-    status              = db.Column(db.String(30), default='pending')  # pending / paid / failed
-    items_snapshot      = db.Column(db.Text)            # JSON of items at time of order
-    address_snapshot    = db.Column(db.Text)            # JSON of delivery address
+    amount              = db.Column(db.Float)
+    status              = db.Column(db.String(30), default='pending')
+    items_snapshot      = db.Column(db.Text)
+    address_snapshot    = db.Column(db.Text)
     created_at          = db.Column(db.DateTime, default=datetime.utcnow)
 
     def items(self):
@@ -105,7 +114,7 @@ class Order(db.Model):
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return db.session.get(User, int(user_id))
 
 
 # ─────────────────────────── Admin Panel ───────────────────────────
@@ -120,10 +129,11 @@ class SecureAdminIndex(AdminIndexView):
         if not is_admin_user():
             return redirect(url_for('login'))
         stats = {
-            'users':    User.query.count(),
-            'products': Product.query.count(),
-            'cart_items': CartItem.query.count(),
-            'addresses':  Address.query.count(),
+            'users':           User.query.count(),
+            'products':        Product.query.count(),
+            'cart_items':      CartItem.query.count(),
+            'addresses':       Address.query.count(),
+            'low_stock_count': Product.query.filter(Product.in_stock == True, Product.stock <= 5).count(),
             'orders':     Order.query.count(),
             'revenue':    db.session.query(db.func.sum(Order.amount)).filter_by(status='paid').scalar() or 0,
         }
@@ -131,8 +141,10 @@ class SecureAdminIndex(AdminIndexView):
 
 
 class SecureModelView(ModelView):
-    def is_accessible(self):         return is_admin_user()
-    def inaccessible_callback(self, name, **kwargs): return redirect(url_for('login'))
+    def is_accessible(self):
+        return is_admin_user()
+    def inaccessible_callback(self, name, **kwargs):
+        return redirect(url_for('login'))
 
 
 class UserAdmin(SecureModelView):
@@ -141,37 +153,43 @@ class UserAdmin(SecureModelView):
     column_filters         = ['is_admin']
     column_editable_list   = ['is_admin']
     form_excluded_columns  = ['password', 'cart_items', 'addresses', 'orders']
-    can_export = True; page_size = 25
+    can_export = True
+    page_size  = 25
 
 
 class ProductAdmin(SecureModelView):
-    column_list            = ['id', 'name', 'category', 'price', 'in_stock']
+    column_list            = ['id', 'name', 'category', 'price', 'stock', 'in_stock']
     column_searchable_list = ['name', 'category']
     column_filters         = ['category', 'in_stock']
-    column_editable_list   = ['price', 'in_stock']
+    column_editable_list   = ['price', 'in_stock', 'stock']
     column_sortable_list   = ['name', 'price', 'category']
-    can_export = True; page_size = 25
+    can_export = True
+    page_size  = 25
 
 
 class OrderAdmin(SecureModelView):
-    column_list            = ['id', 'user_id', 'amount', 'status', 'razorpay_payment_id', 'created_at']
-    column_filters         = ['status']
-    column_sortable_list   = ['amount', 'created_at', 'status']
-    can_create = False; can_edit = False
-    can_export = True; page_size = 25
+    column_list          = ['id', 'user_id', 'amount', 'status', 'razorpay_payment_id', 'created_at']
+    column_filters       = ['status']
+    column_sortable_list = ['amount', 'created_at', 'status']
+    can_create = False
+    can_edit   = False
+    can_export = True
+    page_size  = 25
 
 
 class CartItemAdmin(SecureModelView):
     column_list    = ['id', 'user_id', 'name', 'price', 'quantity']
     column_filters = ['user_id']
     can_create     = False
-    can_export     = True; page_size = 25
+    can_export     = True
+    page_size      = 25
 
 
 class AddressAdmin(SecureModelView):
     column_list    = ['id', 'user_id', 'label', 'street', 'city', 'pincode']
     column_filters = ['city', 'label']
-    can_export     = True; page_size = 25
+    can_export     = True
+    page_size      = 25
 
 
 admin = Admin(app, name='ShopNest Admin', index_view=SecureAdminIndex())
@@ -231,7 +249,14 @@ def login():
         if user and bcrypt.check_password_hash(user.password, password):
             login_user(user, remember=remember)
             flash(f'Welcome back, {user.username}!', 'success')
-            return redirect(request.args.get('next') or url_for('dashboard'))
+
+            # ── Safe redirect: only allow relative paths on this host ──
+            next_page = request.args.get('next', '')
+            parsed    = urlparse(next_page)
+            if next_page and not parsed.netloc and not parsed.scheme:
+                return redirect(next_page)
+            return redirect(url_for('dashboard'))
+
         flash('Invalid email or password.', 'error')
 
     return render_template('login.html')
@@ -263,15 +288,30 @@ def dashboard():
 
 # ─────────────────────────── Shop ───────────────────────────
 
+PER_PAGE = 12
+
 @app.route('/shop')
 def shop():
     category = request.args.get('category', '')
-    query    = Product.query.filter_by(in_stock=True)
+    search   = request.args.get('q', '').strip()
+    page     = request.args.get('page', 1, type=int)
+
+    query = Product.query.filter_by(in_stock=True)
     if category:
         query = query.filter_by(category=category)
-    products   = query.all()
+    if search:
+        query = query.filter(Product.name.ilike(f'%{search}%'))
+
+    pagination = query.paginate(page=page, per_page=PER_PAGE, error_out=False)
+    products   = pagination.items
     categories = [c[0] for c in db.session.query(Product.category).distinct().all() if c[0]]
-    return render_template('shop.html', products=products, categories=categories, active_category=category)
+
+    return render_template('shop.html',
+                           products=products,
+                           categories=categories,
+                           active_category=category,
+                           search=search,
+                           pagination=pagination)
 
 
 # ─────────────────────────── Cart ───────────────────────────
@@ -288,7 +328,7 @@ def cart():
 @login_required
 def add_to_cart():
     product_id = int(request.form['product_id'])
-    product = Product.query.get(product_id)
+    product = db.session.get(Product, product_id)
     if not product or not product.in_stock:
         flash('Product not available.', 'error')
         return redirect(url_for('shop'))
@@ -383,26 +423,23 @@ def checkout():
 @app.route('/payment/create', methods=['POST'])
 @login_required
 def create_payment():
-    """Creates a Razorpay order and returns the order_id to the frontend."""
     items = CartItem.query.filter_by(user_id=current_user.id).all()
     if not items:
         return jsonify({'error': 'Cart is empty'}), 400
 
-    subtotal   = sum(i.price * i.quantity for i in items)
-    total_inr  = round(subtotal * 1.18, 2)
-    amount_paise = int(total_inr * 100)   # Razorpay uses paise
+    subtotal     = sum(i.price * i.quantity for i in items)
+    total_inr    = round(subtotal * 1.18, 2)
+    amount_paise = int(total_inr * 100)
 
     address_id = request.form.get('address_id')
     address    = Address.query.filter_by(id=address_id, user_id=current_user.id).first()
 
-    # Create order in Razorpay
     rz_order = razorpay_client.order.create({
-        'amount':   amount_paise,
-        'currency': 'INR',
+        'amount':          amount_paise,
+        'currency':        'INR',
         'payment_capture': 1
     })
 
-    # Save pending order in our DB
     items_data = [{'name': i.name, 'price': i.price, 'qty': i.quantity, 'image': i.image} for i in items]
     addr_data  = {'street': address.street, 'city': address.city, 'pincode': address.pincode, 'label': address.label} if address else {}
 
@@ -429,32 +466,25 @@ def create_payment():
 @app.route('/payment/success', methods=['POST'])
 @login_required
 def payment_success():
-    """Called after Razorpay payment is completed — verifies signature."""
     payment_id = request.form.get('razorpay_payment_id')
     order_id   = request.form.get('razorpay_order_id')
     signature  = request.form.get('razorpay_signature')
 
-    # Verify the payment signature (security check)
     try:
         razorpay_client.utility.verify_payment_signature({
             'razorpay_order_id':   order_id,
             'razorpay_payment_id': payment_id,
             'razorpay_signature':  signature,
         })
-        # Mark order as paid
         order = Order.query.filter_by(razorpay_order_id=order_id).first_or_404()
         order.status              = 'paid'
         order.razorpay_payment_id = payment_id
-
-        # Clear the cart
         CartItem.query.filter_by(user_id=current_user.id).delete()
         db.session.commit()
-
         flash('Payment successful! Your order has been placed. 🎉', 'success')
         return redirect(url_for('order_detail', order_id=order.id))
 
     except razorpay.errors.SignatureVerificationError:
-        # Mark as failed
         order = Order.query.filter_by(razorpay_order_id=order_id).first()
         if order:
             order.status = 'failed'
@@ -488,17 +518,23 @@ def order_detail(order_id):
 def seed_products():
     if Product.query.count() == 0:
         demo = [
-            Product(name='Wireless Headphones', price=2999, category='Electronics',
+            Product(name='Wireless Headphones', price=2999, category='Electronics', stock=15,
+                    description='Premium sound quality with active noise cancellation and 30-hour battery life.',
                     image='https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400'),
-            Product(name='Smart Watch',         price=4999, category='Electronics',
+            Product(name='Smart Watch',         price=4999, category='Electronics', stock=8,
+                    description='Track fitness, notifications, and more. Water-resistant up to 50m.',
                     image='https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400'),
-            Product(name='Running Shoes',       price=1999, category='Footwear',
+            Product(name='Running Shoes',       price=1999, category='Footwear',    stock=20,
+                    description='Lightweight and breathable design built for long-distance comfort.',
                     image='https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400'),
-            Product(name='Backpack',            price=1499, category='Accessories',
+            Product(name='Backpack',            price=1499, category='Accessories', stock=12,
+                    description='Durable 30L backpack with laptop compartment and ergonomic straps.',
                     image='https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=400'),
-            Product(name='Sunglasses',          price=899,  category='Accessories',
+            Product(name='Sunglasses',          price=899,  category='Accessories', stock=25,
+                    description='UV400 polarised lenses with lightweight titanium frame.',
                     image='https://images.unsplash.com/photo-1572635196237-14b3f281503f?w=400'),
-            Product(name='Laptop Stand',        price=1299, category='Electronics',
+            Product(name='Laptop Stand',        price=1299, category='Electronics', stock=18,
+                    description='Adjustable aluminium stand compatible with all laptops up to 17".',
                     image='https://images.unsplash.com/photo-1527864550417-7fd91fc51a46?w=400'),
         ]
         db.session.add_all(demo)
